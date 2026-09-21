@@ -9,6 +9,7 @@ use App\Models\LocalPersistentVolume;
 use App\Models\Service;
 use App\Models\ServiceApplication;
 use App\Models\ServiceDatabase;
+use App\Support\ValidationPatterns;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
@@ -97,6 +98,42 @@ function validateDockerComposeForInjection(string $composeYaml): void
                 }
             }
         }
+
+        if (is_array($serviceConfig) && isset($serviceConfig['networks']) && is_array($serviceConfig['networks'])) {
+            foreach ($serviceConfig['networks'] as $networkKey => $networkDetails) {
+                if (is_int($networkKey) && (is_string($networkDetails) || is_int($networkDetails))) {
+                    validateComposeNetworkName((string) $networkDetails, 'service network');
+                } elseif (is_string($networkKey) || is_int($networkKey)) {
+                    validateComposeNetworkName((string) $networkKey, 'service network');
+                }
+            }
+        }
+    }
+
+    if (isset($parsed['networks']) && is_array($parsed['networks'])) {
+        foreach ($parsed['networks'] as $networkName => $networkConfig) {
+            if (is_string($networkName) || is_int($networkName)) {
+                validateComposeNetworkName((string) $networkName);
+            }
+            if (is_array($networkConfig) && isset($networkConfig['name']) && is_string($networkConfig['name'])) {
+                validateComposeNetworkName($networkConfig['name'], 'network name field');
+            }
+        }
+    }
+}
+
+/**
+ * Reject Docker Compose network names that are not valid Docker identifiers.
+ *
+ * @throws Exception If the network name is not a valid Docker network identifier
+ */
+function validateComposeNetworkName(string $networkName, string $context = 'network name'): void
+{
+    if ($networkName === '' || ! ValidationPatterns::isValidDockerNetwork($networkName)) {
+        throw new Exception(
+            'Invalid Docker Compose '.$context.
+            '. Network names must start with an alphanumeric character and contain only alphanumeric characters, dots, hyphens, and underscores.'
+        );
     }
 }
 
@@ -1257,7 +1294,7 @@ function applicationParser(Application $resource, int $pull_request_id = 0, ?int
                 if ($docker_compose_domains->count() > 0) {
                     $found_fqdn = getComposeServiceDomainString($docker_compose_domains, (string) $serviceName);
                     if ($found_fqdn) {
-                        $fqdns = collect($found_fqdn);
+                        $fqdns = str($found_fqdn)->explode(',')->map(fn ($fqdn) => trim($fqdn))->filter();
                     } else {
                         $fqdns = collect([]);
                     }
@@ -2546,7 +2583,7 @@ function serviceParser(Service $resource): Collection
             projectName: $resource->project()->name,
             resourceName: $resource->name,
             type: 'service',
-            subType: $isDatabase ? 'database' : 'application',
+            subType: $savedService instanceof ServiceDatabase ? 'database' : 'application',
             subId: $savedService->id,
             subName: $savedService->human_name ?? $savedService->name,
             environment: $resource->environment->name,

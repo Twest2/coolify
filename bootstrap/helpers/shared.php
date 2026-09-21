@@ -2400,7 +2400,7 @@ function get_public_ips()
     }
 }
 
-function isAnyDeploymentInprogress()
+function isAnyDeploymentInprogress(bool $showAll = false)
 {
     $runningJobs = ApplicationDeploymentQueue::where('horizon_job_worker', gethostname())->where('status', ApplicationDeploymentStatus::IN_PROGRESS->value)->get();
 
@@ -2417,34 +2417,31 @@ function isAnyDeploymentInprogress()
         if ($horizonJobStatus === 'unknown' || $horizonJobStatus === 'reserved') {
             $horizonJobIds[] = $runningJob->horizon_job_id;
 
-            // Get application and team information
-            $application = Application::find($runningJob->application_id);
-            $teamMembers = [];
-            $deploymentUrl = '';
+            if ($showAll) {
+                $application = Application::find($runningJob->application_id);
+                $teamMembers = [];
+                $deploymentUrl = '';
 
-            if ($application) {
-                // Get team members through the application's project
-                $team = $application->team();
-                if ($team) {
-                    $teamMembers = $team->members()->pluck('email')->toArray();
+                if ($application) {
+                    $team = $application->team();
+                    if ($team) {
+                        $teamMembers = $team->members()->pluck('email')->toArray();
+                    }
+
+                    if ($runningJob->deployment_url) {
+                        $deploymentUrl = base_url().$runningJob->deployment_url;
+                    }
                 }
 
-                // Construct the full deployment URL
-                if ($runningJob->deployment_url) {
-                    $baseUrl = base_url();
-                    $deploymentUrl = $baseUrl.$runningJob->deployment_url;
-                }
+                $deploymentDetails[] = [
+                    'application_name' => $runningJob->application_name ?? 'Unknown',
+                    'server_name' => $runningJob->server_name ?? 'Unknown',
+                    'deployment_url' => $deploymentUrl,
+                    'team_members' => $teamMembers,
+                    'created_at' => $runningJob->created_at->format('Y-m-d H:i:s'),
+                    'horizon_job_id' => $runningJob->horizon_job_id,
+                ];
             }
-
-            $deploymentDetails[] = [
-                'id' => $runningJob->id,
-                'application_name' => $runningJob->application_name ?? 'Unknown',
-                'server_name' => $runningJob->server_name ?? 'Unknown',
-                'deployment_url' => $deploymentUrl,
-                'team_members' => $teamMembers,
-                'created_at' => $runningJob->created_at->format('Y-m-d H:i:s'),
-                'horizon_job_id' => $runningJob->horizon_job_id,
-            ];
         }
     }
 
@@ -2453,28 +2450,39 @@ function isAnyDeploymentInprogress()
         exit(0);
     }
 
-    // Display enhanced deployment information
-    echo "\n=== Running Deployments ===\n";
-    echo 'Total active deployments: '.count($horizonJobIds)."\n\n";
-
-    foreach ($deploymentDetails as $index => $deployment) {
-        echo 'Deployment #'.($index + 1).":\n";
-        echo '  Application: '.$deployment['application_name']."\n";
-        echo '  Server: '.$deployment['server_name']."\n";
-        echo '  Started: '.$deployment['created_at']."\n";
-        if ($deployment['deployment_url']) {
-            echo '  URL: '.$deployment['deployment_url']."\n";
-        }
-        if (! empty($deployment['team_members'])) {
-            echo '  Team members: '.implode(', ', $deployment['team_members'])."\n";
-        } else {
-            echo "  Team members: No team members found\n";
-        }
-        echo '  Horizon Job ID: '.$deployment['horizon_job_id']."\n";
-        echo "\n";
-    }
+    echo formatRunningDeploymentsOutput(count($horizonJobIds), $deploymentDetails, $showAll);
 
     exit(1);
+}
+
+function formatRunningDeploymentsOutput(int $activeDeploymentCount, array $deploymentDetails = [], bool $showAll = false): string
+{
+    $output = "\n=== Running Deployments ===\n";
+    $output .= 'Total active deployments: '.$activeDeploymentCount."\n";
+
+    if (! $showAll) {
+        return $output;
+    }
+
+    $output .= "\n";
+
+    foreach ($deploymentDetails as $index => $deployment) {
+        $output .= 'Deployment #'.($index + 1).":\n";
+        $output .= '  Application: '.$deployment['application_name']."\n";
+        $output .= '  Server: '.$deployment['server_name']."\n";
+        $output .= '  Started: '.$deployment['created_at']."\n";
+        if ($deployment['deployment_url']) {
+            $output .= '  URL: '.$deployment['deployment_url']."\n";
+        }
+        if (! empty($deployment['team_members'])) {
+            $output .= '  Team members: '.implode(', ', $deployment['team_members'])."\n";
+        } else {
+            $output .= "  Team members: No team members found\n";
+        }
+        $output .= '  Horizon Job ID: '.$deployment['horizon_job_id']."\n\n";
+    }
+
+    return $output;
 }
 
 function isBase64Encoded($strValue)
@@ -3884,7 +3892,7 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                             if (count($docker_compose_domains) > 0) {
                                 $found_fqdn = getComposeServiceDomainString($docker_compose_domains, (string) $serviceName);
                                 if ($found_fqdn) {
-                                    $fqdns = collect($found_fqdn);
+                                    $fqdns = str($found_fqdn)->explode(',')->map(fn ($fqdn) => trim($fqdn))->filter();
                                 } else {
                                     $fqdns = collect([]);
                                 }
@@ -4234,6 +4242,8 @@ function coolifyHelperImage(): string
 
 function getHelperVersion(): string
 {
+    $configuredHelperVersion = config('constants.coolify.helper_version');
+
     if (isDev()) {
         $devHelperVersion = InstanceSettings::query()->whereKey(0)->value('dev_helper_version');
 
@@ -4242,7 +4252,13 @@ function getHelperVersion(): string
         }
     }
 
-    return config('constants.coolify.helper_version');
+    $fetchedHelperVersion = InstanceSettings::query()->whereKey(0)->value('helper_version');
+
+    if (! empty($fetchedHelperVersion) && version_compare($fetchedHelperVersion, $configuredHelperVersion, '>')) {
+        return $fetchedHelperVersion;
+    }
+
+    return $configuredHelperVersion;
 }
 
 function loggy($message = null, array $context = [])
@@ -4554,6 +4570,28 @@ function formatBytes(?int $bytes, int $precision = 2): string
 }
 
 /**
+ * Compact human-readable count (e.g. 26_360 -> "26.36k", 1_200_000 -> "1.2M").
+ * Trailing zeros are trimmed so round values read cleanly ("1k", not "1.00k").
+ * Used for the dense metric columns in the traffic-analytics lists.
+ */
+function compactNumber(?int $n): string
+{
+    $n = (int) $n;
+
+    if ($n < 1000) {
+        return (string) $n;
+    }
+
+    [$divisor, $suffix] = match (true) {
+        $n >= 1_000_000_000 => [1_000_000_000, 'B'],
+        $n >= 1_000_000 => [1_000_000, 'M'],
+        default => [1000, 'k'],
+    };
+
+    return rtrim(rtrim(number_format($n / $divisor, 2, '.', ''), '0'), '.').$suffix;
+}
+
+/**
  * Validates that a file path is safely within the /tmp/ directory.
  * Protects against unsafe parent directory paths by resolving the real path
  * and verifying it stays within /tmp/.
@@ -4691,7 +4729,7 @@ function formatContainerStatus(string $status): string
  * Check if password confirmation should be skipped.
  * Returns true if:
  * - Two-step confirmation is globally disabled
- * - User has no password (OAuth users)
+ * - User has no usable local password confirmation (including SSO users)
  *
  * Used by modal-confirmation.blade.php to determine if password step should be shown.
  *
@@ -4704,8 +4742,9 @@ function shouldSkipPasswordConfirmation(): bool
         return true;
     }
 
-    // Skip if user has no password (OAuth users)
-    if (! Auth::user()?->hasPassword()) {
+    // OAuth users may have an unusable generated password, so the linked
+    // identity is the source of truth for whether confirmation is possible.
+    if (! Auth::user()?->requiresPasswordConfirmation()) {
         return true;
     }
 
@@ -4716,7 +4755,7 @@ function shouldSkipPasswordConfirmation(): bool
  * Verify password for two-step confirmation.
  * Skips verification if:
  * - Two-step confirmation is globally disabled
- * - User has no password (OAuth users)
+ * - User has no usable local password confirmation (including SSO users)
  *
  * @param  mixed  $password  The password to verify (may be array if skipped by frontend)
  * @param  Component|null  $component  Optional Livewire component to add errors to
@@ -4932,4 +4971,413 @@ function resolveSharedEnvironmentVariables(?string $value, $resource): ?string
     }
 
     return str($value)->value();
+}
+
+/**
+ * Convert an ISO 3166-1 alpha-2 country code into its regional-indicator flag emoji.
+ *
+ * The input is case-insensitive (e.g. "us" and "US" both yield the United States flag).
+ * For null, empty, or otherwise invalid input (not exactly two ASCII letters) a neutral
+ * globe emoji is returned to represent an "Unknown" origin.
+ */
+function countryFlagEmoji(?string $a2): string
+{
+    $unknown = '🌐';
+
+    if (! is_string($a2)) {
+        return $unknown;
+    }
+
+    $code = strtoupper(trim($a2));
+
+    if (preg_match('/^[A-Z]{2}$/', $code) !== 1) {
+        return $unknown;
+    }
+
+    $flag = '';
+    foreach (str_split($code) as $letter) {
+        $flag .= mb_chr(0x1F1E6 + (ord($letter) - ord('A')), 'UTF-8');
+    }
+
+    return $flag;
+}
+
+/**
+ * Resolve an ISO 3166-1 alpha-2 code to a flag image URL (flagcdn.com).
+ *
+ * Emoji flags do not render on most Linux/Windows browsers, so the analytics
+ * views render an <img> instead. Returns null for null/invalid codes so callers
+ * can fall back to a globe icon.
+ */
+function countryFlagUrl(?string $a2, string $size = '24x18'): ?string
+{
+    if (! is_string($a2)) {
+        return null;
+    }
+
+    $code = strtolower(trim($a2));
+
+    if (preg_match('/^[a-z]{2}$/', $code) !== 1) {
+        return null;
+    }
+
+    return "https://flagcdn.com/{$size}/{$code}.png";
+}
+
+/**
+ * Extract the bare host from a referer value (full URL or bare host), dropping
+ * a leading "www.". Returns null when there is no usable host (e.g. direct hits).
+ */
+function refererHost(?string $referer): ?string
+{
+    if (! is_string($referer) || trim($referer) === '') {
+        return null;
+    }
+
+    $referer = trim($referer);
+    $withScheme = str_contains($referer, '://') ? $referer : 'http://'.$referer;
+    $host = parse_url($withScheme, PHP_URL_HOST) ?: null;
+
+    if (! $host) {
+        return null;
+    }
+
+    $host = strtolower($host);
+
+    return str_starts_with($host, 'www.') ? substr($host, 4) : $host;
+}
+
+/**
+ * Group referrer breakdown rows by hostname and sum their metrics.
+ *
+ * @param  array<int, array{value?: string, requests?: int, bytesOut?: int}>  $rows
+ * @return array<int, array{value: string, requests: int, bytesOut: int}>
+ */
+function groupRefererBreakdownRows(array $rows): array
+{
+    $grouped = [];
+
+    foreach ($rows as $row) {
+        $value = (string) ($row['value'] ?? '');
+        $host = $value === '__other__' ? $value : (refererHost($value) ?? $value);
+
+        $grouped[$host] ??= ['value' => $host, 'requests' => 0, 'bytesOut' => 0];
+        $grouped[$host]['requests'] += (int) ($row['requests'] ?? 0);
+        $grouped[$host]['bytesOut'] += (int) ($row['bytesOut'] ?? 0);
+    }
+
+    $rows = array_values($grouped);
+    usort($rows, fn (array $left, array $right): int => $right['requests'] <=> $left['requests']);
+
+    return $rows;
+}
+
+/**
+ * Favicon URL for a host, served by DuckDuckGo's icon proxy. Used to decorate
+ * referrer rows in analytics.
+ *
+ * Note: rendering these icons makes the operator's browser request each favicon
+ * from icons.duckduckgo.com, which discloses the referrer hostnames of the
+ * operator's own traffic to that third party. Same applies to countryFlagUrl()
+ * (flagcdn.com). No API key is required.
+ */
+function refererFaviconUrl(string $host): string
+{
+    return 'https://icons.duckduckgo.com/ip3/'.rawurlencode($host).'.ico';
+}
+
+/**
+ * Map Sentinel's lowercase woothee device category to a friendly, capitalized
+ * label (e.g. "pc" -> "Desktop", "smartphone" -> "Mobile").
+ */
+function deviceLabel(?string $device): string
+{
+    $value = strtolower(trim((string) $device));
+
+    return match ($value) {
+        '' => 'Unknown',
+        'pc' => 'Desktop',
+        'smartphone' => 'Mobile',
+        'mobilephone' => 'Mobile',
+        'appliance' => 'Appliance',
+        'crawler' => 'Bot',
+        default => Str::title($value),
+    };
+}
+
+/**
+ * Resolve an ISO 3166-1 alpha-2 country code to its English country name.
+ *
+ * Uses a bundled ISO 3166-1 lookup so the result is deterministic and does not
+ * depend on the intl extension being installed. Returns "Unknown" for null,
+ * empty, invalid, or unassigned codes.
+ */
+function countryName(?string $a2): string
+{
+    $unknown = 'Unknown';
+
+    if (! is_string($a2)) {
+        return $unknown;
+    }
+
+    $code = strtoupper(trim($a2));
+
+    if (preg_match('/^[A-Z]{2}$/', $code) !== 1) {
+        return $unknown;
+    }
+
+    static $names = [
+        'AD' => 'Andorra',
+        'AE' => 'United Arab Emirates',
+        'AF' => 'Afghanistan',
+        'AG' => 'Antigua & Barbuda',
+        'AI' => 'Anguilla',
+        'AL' => 'Albania',
+        'AM' => 'Armenia',
+        'AO' => 'Angola',
+        'AQ' => 'Antarctica',
+        'AR' => 'Argentina',
+        'AS' => 'American Samoa',
+        'AT' => 'Austria',
+        'AU' => 'Australia',
+        'AW' => 'Aruba',
+        'AX' => 'Åland Islands',
+        'AZ' => 'Azerbaijan',
+        'BA' => 'Bosnia & Herzegovina',
+        'BB' => 'Barbados',
+        'BD' => 'Bangladesh',
+        'BE' => 'Belgium',
+        'BF' => 'Burkina Faso',
+        'BG' => 'Bulgaria',
+        'BH' => 'Bahrain',
+        'BI' => 'Burundi',
+        'BJ' => 'Benin',
+        'BL' => 'St. Barthélemy',
+        'BM' => 'Bermuda',
+        'BN' => 'Brunei',
+        'BO' => 'Bolivia',
+        'BQ' => 'Caribbean Netherlands',
+        'BR' => 'Brazil',
+        'BS' => 'Bahamas',
+        'BT' => 'Bhutan',
+        'BV' => 'Bouvet Island',
+        'BW' => 'Botswana',
+        'BY' => 'Belarus',
+        'BZ' => 'Belize',
+        'CA' => 'Canada',
+        'CC' => 'Cocos (Keeling) Islands',
+        'CD' => 'Congo - Kinshasa',
+        'CF' => 'Central African Republic',
+        'CG' => 'Congo - Brazzaville',
+        'CH' => 'Switzerland',
+        'CI' => 'Côte d’Ivoire',
+        'CK' => 'Cook Islands',
+        'CL' => 'Chile',
+        'CM' => 'Cameroon',
+        'CN' => 'China',
+        'CO' => 'Colombia',
+        'CR' => 'Costa Rica',
+        'CU' => 'Cuba',
+        'CV' => 'Cape Verde',
+        'CW' => 'Curaçao',
+        'CX' => 'Christmas Island',
+        'CY' => 'Cyprus',
+        'CZ' => 'Czechia',
+        'DE' => 'Germany',
+        'DJ' => 'Djibouti',
+        'DK' => 'Denmark',
+        'DM' => 'Dominica',
+        'DO' => 'Dominican Republic',
+        'DZ' => 'Algeria',
+        'EC' => 'Ecuador',
+        'EE' => 'Estonia',
+        'EG' => 'Egypt',
+        'EH' => 'Western Sahara',
+        'ER' => 'Eritrea',
+        'ES' => 'Spain',
+        'ET' => 'Ethiopia',
+        'FI' => 'Finland',
+        'FJ' => 'Fiji',
+        'FK' => 'Falkland Islands',
+        'FM' => 'Micronesia',
+        'FO' => 'Faroe Islands',
+        'FR' => 'France',
+        'GA' => 'Gabon',
+        'GB' => 'United Kingdom',
+        'GD' => 'Grenada',
+        'GE' => 'Georgia',
+        'GF' => 'French Guiana',
+        'GG' => 'Guernsey',
+        'GH' => 'Ghana',
+        'GI' => 'Gibraltar',
+        'GL' => 'Greenland',
+        'GM' => 'Gambia',
+        'GN' => 'Guinea',
+        'GP' => 'Guadeloupe',
+        'GQ' => 'Equatorial Guinea',
+        'GR' => 'Greece',
+        'GS' => 'South Georgia & South Sandwich Islands',
+        'GT' => 'Guatemala',
+        'GU' => 'Guam',
+        'GW' => 'Guinea-Bissau',
+        'GY' => 'Guyana',
+        'HK' => 'Hong Kong SAR China',
+        'HM' => 'Heard & McDonald Islands',
+        'HN' => 'Honduras',
+        'HR' => 'Croatia',
+        'HT' => 'Haiti',
+        'HU' => 'Hungary',
+        'ID' => 'Indonesia',
+        'IE' => 'Ireland',
+        'IL' => 'Israel',
+        'IM' => 'Isle of Man',
+        'IN' => 'India',
+        'IO' => 'British Indian Ocean Territory',
+        'IQ' => 'Iraq',
+        'IR' => 'Iran',
+        'IS' => 'Iceland',
+        'IT' => 'Italy',
+        'JE' => 'Jersey',
+        'JM' => 'Jamaica',
+        'JO' => 'Jordan',
+        'JP' => 'Japan',
+        'KE' => 'Kenya',
+        'KG' => 'Kyrgyzstan',
+        'KH' => 'Cambodia',
+        'KI' => 'Kiribati',
+        'KM' => 'Comoros',
+        'KN' => 'St. Kitts & Nevis',
+        'KP' => 'North Korea',
+        'KR' => 'South Korea',
+        'KW' => 'Kuwait',
+        'KY' => 'Cayman Islands',
+        'KZ' => 'Kazakhstan',
+        'LA' => 'Laos',
+        'LB' => 'Lebanon',
+        'LC' => 'St. Lucia',
+        'LI' => 'Liechtenstein',
+        'LK' => 'Sri Lanka',
+        'LR' => 'Liberia',
+        'LS' => 'Lesotho',
+        'LT' => 'Lithuania',
+        'LU' => 'Luxembourg',
+        'LV' => 'Latvia',
+        'LY' => 'Libya',
+        'MA' => 'Morocco',
+        'MC' => 'Monaco',
+        'MD' => 'Moldova',
+        'ME' => 'Montenegro',
+        'MF' => 'St. Martin',
+        'MG' => 'Madagascar',
+        'MH' => 'Marshall Islands',
+        'MK' => 'North Macedonia',
+        'ML' => 'Mali',
+        'MM' => 'Myanmar (Burma)',
+        'MN' => 'Mongolia',
+        'MO' => 'Macao SAR China',
+        'MP' => 'Northern Mariana Islands',
+        'MQ' => 'Martinique',
+        'MR' => 'Mauritania',
+        'MS' => 'Montserrat',
+        'MT' => 'Malta',
+        'MU' => 'Mauritius',
+        'MV' => 'Maldives',
+        'MW' => 'Malawi',
+        'MX' => 'Mexico',
+        'MY' => 'Malaysia',
+        'MZ' => 'Mozambique',
+        'NA' => 'Namibia',
+        'NC' => 'New Caledonia',
+        'NE' => 'Niger',
+        'NF' => 'Norfolk Island',
+        'NG' => 'Nigeria',
+        'NI' => 'Nicaragua',
+        'NL' => 'Netherlands',
+        'NO' => 'Norway',
+        'NP' => 'Nepal',
+        'NR' => 'Nauru',
+        'NU' => 'Niue',
+        'NZ' => 'New Zealand',
+        'OM' => 'Oman',
+        'PA' => 'Panama',
+        'PE' => 'Peru',
+        'PF' => 'French Polynesia',
+        'PG' => 'Papua New Guinea',
+        'PH' => 'Philippines',
+        'PK' => 'Pakistan',
+        'PL' => 'Poland',
+        'PM' => 'St. Pierre & Miquelon',
+        'PN' => 'Pitcairn Islands',
+        'PR' => 'Puerto Rico',
+        'PS' => 'Palestinian Territories',
+        'PT' => 'Portugal',
+        'PW' => 'Palau',
+        'PY' => 'Paraguay',
+        'QA' => 'Qatar',
+        'RE' => 'Réunion',
+        'RO' => 'Romania',
+        'RS' => 'Serbia',
+        'RU' => 'Russia',
+        'RW' => 'Rwanda',
+        'SA' => 'Saudi Arabia',
+        'SB' => 'Solomon Islands',
+        'SC' => 'Seychelles',
+        'SD' => 'Sudan',
+        'SE' => 'Sweden',
+        'SG' => 'Singapore',
+        'SH' => 'St. Helena',
+        'SI' => 'Slovenia',
+        'SJ' => 'Svalbard & Jan Mayen',
+        'SK' => 'Slovakia',
+        'SL' => 'Sierra Leone',
+        'SM' => 'San Marino',
+        'SN' => 'Senegal',
+        'SO' => 'Somalia',
+        'SR' => 'Suriname',
+        'SS' => 'South Sudan',
+        'ST' => 'São Tomé & Príncipe',
+        'SV' => 'El Salvador',
+        'SX' => 'Sint Maarten',
+        'SY' => 'Syria',
+        'SZ' => 'Eswatini',
+        'TC' => 'Turks & Caicos Islands',
+        'TD' => 'Chad',
+        'TF' => 'French Southern Territories',
+        'TG' => 'Togo',
+        'TH' => 'Thailand',
+        'TJ' => 'Tajikistan',
+        'TK' => 'Tokelau',
+        'TL' => 'Timor-Leste',
+        'TM' => 'Turkmenistan',
+        'TN' => 'Tunisia',
+        'TO' => 'Tonga',
+        'TR' => 'Türkiye',
+        'TT' => 'Trinidad & Tobago',
+        'TV' => 'Tuvalu',
+        'TW' => 'Taiwan',
+        'TZ' => 'Tanzania',
+        'UA' => 'Ukraine',
+        'UG' => 'Uganda',
+        'UM' => 'U.S. Outlying Islands',
+        'US' => 'United States',
+        'UY' => 'Uruguay',
+        'UZ' => 'Uzbekistan',
+        'VA' => 'Vatican City',
+        'VC' => 'St. Vincent & Grenadines',
+        'VE' => 'Venezuela',
+        'VG' => 'British Virgin Islands',
+        'VI' => 'U.S. Virgin Islands',
+        'VN' => 'Vietnam',
+        'VU' => 'Vanuatu',
+        'WF' => 'Wallis & Futuna',
+        'WS' => 'Samoa',
+        'XK' => 'Kosovo',
+        'YE' => 'Yemen',
+        'YT' => 'Mayotte',
+        'ZA' => 'South Africa',
+        'ZM' => 'Zambia',
+        'ZW' => 'Zimbabwe',
+    ];
+
+    return $names[$code] ?? $unknown;
 }
