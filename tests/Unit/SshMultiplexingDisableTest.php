@@ -15,11 +15,13 @@ use Tests\TestCase;
  */
 class SshMultiplexingDisableTest extends TestCase
 {
-    public function test_generate_ssh_command_method_exists()
+    public function test_remote_shell_prefers_bash_and_falls_back_to_sh()
     {
-        $this->assertTrue(
-            method_exists(SshMultiplexingHelper::class, 'generateSshCommand'),
-            'generateSshCommand method should exist'
+        $reflection = new \ReflectionMethod(SshMultiplexingHelper::class, 'remoteShellCommand');
+
+        $this->assertSame(
+            'if command -v bash >/dev/null 2>&1; then exec bash -se; else exec sh -se; fi',
+            $reflection->invoke(null)
         );
     }
 

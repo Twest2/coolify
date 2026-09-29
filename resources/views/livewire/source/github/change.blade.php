@@ -104,7 +104,14 @@
                                 <x-application.settings-section title="General"
                                     description="Connection and authentication settings for this private GitHub source.">
                                     <x-slot:actions>
-                                        <x-forms.button type="button" wire:click.prevent="updateGithubAppName">
+                                        @if ($isConnected)
+                                            <x-forms.button type="button" canGate="view" :canResource="$github_app"
+                                                wire:click.prevent="testConnection">
+                                                Test connection
+                                            </x-forms.button>
+                                        @endif
+                                        <x-forms.button type="button" canGate="update" :canResource="$github_app"
+                                            wire:click.prevent="updateGithubAppName">
                                             <x-reicon name="refresh" class="size-3.5" />
                                             Sync name
                                         </x-forms.button>
@@ -170,27 +177,18 @@
                             <div class="application-settings-form">
                                 <x-application.settings-section id="github-app-danger-section" title="Danger zone"
                                     helper="Destructive actions for this GitHub App source cannot be undone.">
-                                    <div
-                                        class="rounded-lg border border-red-300 bg-red-50 p-4 ring-1 ring-inset ring-red-200/60 dark:border-error/30 dark:bg-error/[0.08] dark:ring-error/10">
-                                        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                                            <div class="min-w-0">
-                                                <div class="flex flex-wrap items-center gap-2">
-                                                    <h4 class="text-sm font-semibold text-red-700 dark:text-error">Delete GitHub App</h4>
-                                                    <x-status-badge status="Permanent" type="error" />
-                                                </div>
-                                                <p class="mt-2 max-w-2xl text-[13px] leading-5 text-neutral-600 dark:text-fg-dim">
+                                    <x-danger-zone title="Delete GitHub App">
+                                                <p>
                                                     Permanently delete
                                                     <strong class="font-semibold text-black dark:text-fg">{{ $name ?: 'this GitHub App' }}</strong>
                                                     from Coolify. Applications using this source will need another Git provider configured.
                                                 </p>
-                                                <ul class="mt-3 space-y-1 text-xs text-neutral-500 dark:text-fg-dim">
+                                                <ul class="space-y-1 text-xs">
                                                     <li>• The App registration on GitHub is not removed automatically.</li>
                                                     <li>• Linked applications keep their Git settings until you change them.</li>
                                                     <li>• This source cannot be restored from Coolify after deletion.</li>
                                                 </ul>
-                                            </div>
-
-                                            <div class="shrink-0">
+                                            <x-slot:action>
                                                 @can('delete', $github_app)
                                                     <x-modal-confirmation title="Confirm GitHub App Deletion?" isErrorButton
                                                         buttonTitle="Delete" submitAction="delete"
@@ -200,13 +198,13 @@
                                                         shortConfirmationLabel="GitHub App Name" :confirmWithPassword="false"
                                                         step2ButtonText="Permanently Delete" />
                                                 @else
-                                                    <x-forms.button isError disabled tooltip="You do not have permission to delete this GitHub App.">
+                                                    <x-forms.button isError disabled canGate="delete" :canResource="$github_app"
+                                                        tooltip="You do not have permission to delete this GitHub App.">
                                                         Delete
                                                     </x-forms.button>
                                                 @endcan
-                                            </div>
-                                        </div>
-                                    </div>
+                                            </x-slot:action>
+                                    </x-danger-zone>
 
                                     @cannot('delete', $github_app)
                                         <div class="mt-4">
@@ -362,11 +360,11 @@
                 const selectedEndpoint = webhook_endpoint ? webhook_endpoint.trim() : '';
                 const customEndpoint = custom_webhook_endpoint ? custom_webhook_endpoint.trim() : '';
                 if (use_custom_webhook_endpoint && !customEndpoint) {
-                    alert('Please enter a custom webhook endpoint.');
+                    window.toast('Error', { type: 'danger', description: 'Please enter a custom webhook endpoint.' });
                     return;
                 }
                 if (!use_custom_webhook_endpoint && !selectedEndpoint) {
-                    alert('Please enter a webhook endpoint.');
+                    window.toast('Error', { type: 'danger', description: 'Please enter a webhook endpoint.' });
                     return;
                 }
                 let baseUrl = (use_custom_webhook_endpoint ? customEndpoint : selectedEndpoint).replace(/\/+$/, '');

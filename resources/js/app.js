@@ -1,4 +1,8 @@
+import { initializeCopyButtonComponent } from './copy-button.js';
+import { initializeRuntimeLogsComponent } from './runtime-logs.js';
+import { initializeSettingsSidebarAccordionComponent } from './settings-sidebar-accordion.js';
 import { initializeTerminalComponent } from './terminal.js';
+import './traffic-globe.js';
 import { registerLivewireRequestFailureHandler } from './livewire-request-failure.js';
 
 document.addEventListener('livewire:init', () => {
@@ -17,6 +21,9 @@ document.addEventListener('livewire:navigated', () => {
 // Keeping this registration independent from the current route also makes it
 // available before Alpine processes terminal markup after wire:navigate.
 document.addEventListener('alpine:init', initializeTerminalComponent);
+document.addEventListener('alpine:init', initializeCopyButtonComponent);
+document.addEventListener('alpine:init', initializeRuntimeLogsComponent);
+document.addEventListener('alpine:init', initializeSettingsSidebarAccordionComponent);
 
 /**
  * Smooth-scroll a settings section into view, then flash its border for 500ms

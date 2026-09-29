@@ -312,13 +312,20 @@ describe('DELETE resource endpoints', function () {
             'server_id' => $this->server->id,
         ]);
 
-        $this->withHeaders($this->headers)
+        $response = $this->withHeaders($this->headers)
             ->deleteJson("/api/v1/services/{$service->uuid}")
             ->assertOk();
 
+        $response->assertJson([
+            'message' => 'Server is not reachable. The service will be removed from Coolify only; Docker resources may remain.',
+        ]);
+
         expect(Service::find($service->id))->toBeNull()
             ->and(Service::withTrashed()->find($service->id)?->trashed())->toBeTrue();
-        Queue::assertPushed(DeleteResourceJob::class);
+        Queue::assertPushed(
+            DeleteResourceJob::class,
+            fn (DeleteResourceJob $job): bool => $job->deleteFromCoolifyOnly
+        );
     });
 
     test('soft deletes a database before queuing cleanup', function () {
@@ -473,6 +480,70 @@ describe('Application multi-destination cross-team', function () {
 
         $response->assertNotFound();
         expect($this->application->fresh()->additional_networks)->toHaveCount(0);
+    });
+
+    test('attaches a destination on another server of the same team', function () {
+        $secondServer = Server::factory()->create(['team_id' => $this->team->id]);
+        $secondDestination = StandaloneDocker::where('server_id', $secondServer->id)->firstOrFail();
+
+        $this->withHeaders($this->headers)
+            ->postJson("/api/v1/applications/{$this->application->uuid}/destinations", [
+                'destination_uuid' => $secondDestination->uuid,
+            ])
+            ->assertSuccessful();
+
+        expect($this->application->fresh()->additional_networks)->toHaveCount(1);
+    });
+
+    test('rejects an additional server for an application with persistent storage', function () {
+        LocalPersistentVolume::create([
+            'name' => 'app-data-'.$this->application->uuid,
+            'mount_path' => '/data',
+            'resource_id' => $this->application->id,
+            'resource_type' => $this->application->getMorphClass(),
+        ]);
+        $secondServer = Server::factory()->create(['team_id' => $this->team->id]);
+        $secondDestination = StandaloneDocker::where('server_id', $secondServer->id)->firstOrFail();
+
+        $this->withHeaders($this->headers)
+            ->postJson("/api/v1/applications/{$this->application->uuid}/destinations", [
+                'destination_uuid' => $secondDestination->uuid,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'Applications with persistent storage cannot use multiple servers because volumes are not shared between servers.');
+
+        expect($this->application->fresh()->additional_networks)->toHaveCount(0);
+    });
+
+    test('rejects an additional server for a Docker Compose application', function () {
+        $this->application->update(['build_pack' => 'dockercompose']);
+        $secondServer = Server::factory()->create(['team_id' => $this->team->id]);
+        $secondDestination = StandaloneDocker::where('server_id', $secondServer->id)->firstOrFail();
+
+        $this->withHeaders($this->headers)
+            ->postJson("/api/v1/applications/{$this->application->uuid}/destinations", [
+                'destination_uuid' => $secondDestination->uuid,
+            ])
+            ->assertUnprocessable();
+
+        expect($this->application->fresh()->additional_networks)->toHaveCount(0);
+    });
+
+    test('rejects a volume for an application with an additional server', function () {
+        $secondServer = Server::factory()->create(['team_id' => $this->team->id]);
+        $secondDestination = StandaloneDocker::where('server_id', $secondServer->id)->firstOrFail();
+        $this->application->additional_networks()->attach($secondDestination->id, ['server_id' => $secondServer->id]);
+
+        $this->withHeaders($this->headers)
+            ->postJson("/api/v1/applications/{$this->application->uuid}/storages", [
+                'type' => 'persistent',
+                'name' => 'data',
+                'mount_path' => '/data',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'Applications that use multiple servers cannot have persistent storage because volumes are not shared between servers.');
+
+        expect($this->application->persistentStorages()->count())->toBe(0);
     });
 
     test('lists primary destination', function () {

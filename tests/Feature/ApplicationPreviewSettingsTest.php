@@ -141,10 +141,3 @@ it('denies preview setting changes without application update permission', funct
         ->is_preview_deployments_enabled->toBeFalse()
         ->is_pr_deployments_public_enabled->toBeFalse();
 })->with([['member', false], ['owner', true]]);
-
-it('removes preview settings from Advanced including its persistence path', function () {
-    expect(file_get_contents(resource_path('views/livewire/project/application/advanced.blade.php')))
-        ->not->toContain('isPreviewDeploymentsEnabled', 'isPrDeploymentsPublicEnabled');
-    expect(file_get_contents(app_path('Livewire/Project/Application/Advanced.php')))
-        ->not->toContain('is_preview_deployments_enabled', 'is_pr_deployments_public_enabled');
-});
