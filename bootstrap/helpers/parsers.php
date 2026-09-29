@@ -1933,8 +1933,9 @@ function applicationParser(Application $resource, int $pull_request_id = 0, ?int
                             image: $image,
                             onlyPort: $onlyPort,
                             noindex_domains: $noindexDomains,
-                            redirect_direction: $redirectDirection,
-                            domainPortOverrides: $domainPortOverrides,
+                                            redirect_direction: $redirectDirection,
+                                            domainPortOverrides: $domainPortOverrides,
+                                            server: $server,
                         ));
                         break;
                     case ProxyTypes::CADDY->value:
@@ -1970,8 +1971,9 @@ function applicationParser(Application $resource, int $pull_request_id = 0, ?int
                     image: $image,
                     onlyPort: $onlyPort,
                     noindex_domains: $noindexDomains,
-                    redirect_direction: $redirectDirection,
-                    domainPortOverrides: $domainPortOverrides,
+                            redirect_direction: $redirectDirection,
+                            domainPortOverrides: $domainPortOverrides,
+                            server: $server,
                 ));
                 $serviceLabels = $serviceLabels->merge(fqdnLabelsForCaddy(
                     network: $labelNetwork,
@@ -3185,7 +3187,8 @@ function serviceParser(Service $resource): Collection
                             onlyPort: $onlyPort,
                             domainPortOverrides: $originalResource->domain_port_overrides ?? [],
                             noindex_domains: $noindexDomains,
-                            redirect_direction: $redirectDirection
+                            redirect_direction: $redirectDirection,
+                            server: $server,
                         ));
                         break;
                     case ProxyTypes::CADDY->value:
@@ -3222,7 +3225,8 @@ function serviceParser(Service $resource): Collection
                     onlyPort: $onlyPort,
                     domainPortOverrides: $originalResource->domain_port_overrides ?? [],
                     noindex_domains: $noindexDomains,
-                    redirect_direction: $redirectDirection
+                    redirect_direction: $redirectDirection,
+                    server: $server,
                 ));
                 $serviceLabels = $serviceLabels->merge(fqdnLabelsForCaddy(
                     network: $network,

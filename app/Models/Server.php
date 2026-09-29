@@ -10,6 +10,7 @@ use App\Actions\Server\ValidatePrerequisites;
 use App\Enums\ProxyTypes;
 use App\Enums\ServerRole;
 use App\Events\ServerReachabilityChanged;
+use App\Jobs\ReconcileTeamRemoteServerRoutesJob;
 use App\Helpers\SslHelper;
 use App\Jobs\CheckAndStartSentinelJob;
 use App\Jobs\CheckTraefikVersionForServerJob;
@@ -1754,6 +1755,11 @@ $siteAddress {
         $isReachable = (bool) $this->settings->is_reachable;
 
         if ($isReachable === true) {
+            // A recovered master may have missed writes; a recovered target can
+            // again receive traffic from its team's master. Reconciliation is queued.
+            if ($this->team_id !== null) {
+                ReconcileTeamRemoteServerRoutesJob::dispatch((int) $this->team_id);
+            }
             if ($unreachableNotificationSent === true) {
                 $this->sendReachableNotification();
             }

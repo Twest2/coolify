@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Enums\ProxyTypes;
 use App\Enums\ServerRole;
+use App\Jobs\ReconcileTeamRemoteServerRoutesJob;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use OpenApi\Attributes as OA;
 
@@ -22,6 +25,7 @@ use OpenApi\Attributes as OA;
         'force_server_cleanup' => ['type' => 'boolean'],
         'server_role' => ['type' => 'string', 'enum' => ['deployment', 'build', 'both']],
         'is_cloudflare_tunnel' => ['type' => 'boolean'],
+        'is_master_domain_router_enabled' => ['type' => 'boolean'],
         'is_jump_server' => ['type' => 'boolean'],
         'is_logdrain_axiom_enabled' => ['type' => 'boolean'],
         'is_logdrain_custom_enabled' => ['type' => 'boolean'],
@@ -79,6 +83,7 @@ class ServerSetting extends Model
         'is_swarm_manager',
         'is_jump_server',
         'is_build_server',
+        'is_master_domain_router_enabled',
         'server_role',
         'is_reachable',
         'is_usable',
@@ -153,6 +158,7 @@ class ServerSetting extends Model
         'is_reachable' => 'boolean',
         'is_usable' => 'boolean',
         'is_build_server' => 'boolean',
+        'is_master_domain_router_enabled' => 'boolean',
         'server_role' => ServerRole::class,
         'is_terminal_enabled' => 'boolean',
         'disable_application_image_retention' => 'boolean',
@@ -223,6 +229,44 @@ class ServerSetting extends Model
                 }
             }
         });
+    }
+
+    public static function enableMasterDomainRouter(Server $server): void
+    {
+        if ($server->proxyType() !== ProxyTypes::TRAEFIK->value) {
+            throw new \RuntimeException('Master domain routing can only be enabled on a Traefik server.');
+        }
+
+        if ($server->settings?->is_build_server) {
+            throw new \RuntimeException('Master domain routing cannot be enabled on a dedicated build server.');
+        }
+
+        DB::transaction(function () use ($server): void {
+            if ($server->team_id === null) {
+                throw new \RuntimeException('Master domain routing requires a server team.');
+            }
+
+            // The team row is the shared lock target for concurrent enables on
+            // different servers. Locking only the candidate server would allow
+            // two simultaneous requests to select different masters.
+            Team::query()->whereKey($server->team_id)->lockForUpdate()->firstOrFail();
+
+            static::query()
+                ->whereHas('server', fn ($query) => $query->where('team_id', $server->team_id))
+                ->update(['is_master_domain_router_enabled' => false]);
+
+            static::query()
+                ->where('server_id', $server->id)
+                ->update(['is_master_domain_router_enabled' => true]);
+        });
+
+        ReconcileTeamRemoteServerRoutesJob::dispatch((int) $server->team_id)->afterCommit();
+    }
+
+    public static function disableMasterDomainRouter(Server $server): void
+    {
+        static::query()->where('server_id', $server->id)->update(['is_master_domain_router_enabled' => false]);
+        ReconcileTeamRemoteServerRoutesJob::dispatch((int) $server->team_id)->afterCommit();
     }
 
     public function effectiveServerRole(): ServerRole
