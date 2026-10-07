@@ -8,7 +8,10 @@ use App\Models\Server;
 use App\Models\Service;
 use App\Models\ServiceApplication;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+
+uses(RefreshDatabase::class);
 
 beforeEach(function () {
     Queue::fake();

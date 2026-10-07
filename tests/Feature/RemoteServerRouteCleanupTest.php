@@ -4,6 +4,7 @@ use App\Models\Server;
 use App\Models\User;
 use App\Services\RemoteRouteConfigurationBuilder;
 use App\Services\RemoteServerRouteService;
+use App\Services\RemoteServerTargetResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -14,7 +15,7 @@ it('only removes deterministic remote-route files during cleanup', function () {
         'team_id' => $user->teams()->firstOrFail()->id,
         'proxy' => ['type' => 'TRAEFIK'],
     ]);
-    $service = new class(app(RemoteRouteConfigurationBuilder::class)) extends RemoteServerRouteService
+    $service = new class(app(RemoteRouteConfigurationBuilder::class), app(RemoteServerTargetResolver::class)) extends RemoteServerRouteService
     {
         public array $commands = [];
 

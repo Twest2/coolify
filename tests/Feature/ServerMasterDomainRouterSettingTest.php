@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ServerRole;
 use App\Models\Server;
 use App\Models\ServerSetting;
 use App\Models\User;
@@ -37,7 +38,7 @@ it('atomically replaces the team master domain router', function () {
 it('rejects non-traefik and build servers as master domain routers', function () {
     $nonTraefik = masterRouterServer(['proxy' => ['type' => 'CADDY']]);
     $buildServer = masterRouterServer(['proxy' => ['type' => 'TRAEFIK']]);
-    $buildServer->settings->update(['is_build_server' => true]);
+    $buildServer->settings->update(['server_role' => ServerRole::BUILD, 'is_build_server' => true]);
 
     expect(fn () => ServerSetting::enableMasterDomainRouter($nonTraefik))
         ->toThrow(RuntimeException::class, 'Traefik')
