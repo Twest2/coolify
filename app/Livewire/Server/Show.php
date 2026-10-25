@@ -7,6 +7,7 @@ use App\Enums\ServerRole;
 use App\Events\ServerReachabilityChanged;
 use App\Models\CloudProviderToken;
 use App\Models\Server;
+use App\Models\ServerSetting;
 use App\Rules\ValidServerIp;
 use App\Services\DigitalOceanService;
 use App\Services\HetznerService;
@@ -53,6 +54,8 @@ class Show extends Component
     public bool $isSwarmWorker;
 
     public string $serverRole;
+
+    public bool $isMasterDomainRouterEnabled;
 
     #[Locked]
     public ?string $pendingServerRole = null;
@@ -172,6 +175,7 @@ class Show extends Component
             'isSwarmManager' => 'required',
             'isSwarmWorker' => 'required',
             'serverRole' => ['required', 'in:deployment,build,both'],
+            'isMasterDomainRouterEnabled' => 'required',
             'isMetricsEnabled' => 'required',
             'sentinelToken' => 'required',
             'sentinelUpdatedAt' => 'nullable',
@@ -273,6 +277,7 @@ class Show extends Component
             $this->server->settings->wildcard_domain = $this->wildcardDomain;
             // The role is only changed through requestServerRoleChange()/confirmServerRoleChange().
             $this->serverRole = $this->server->settings->effectiveServerRole()->value;
+            $wasMasterDomainRouterEnabled = $this->server->settings->is_master_domain_router_enabled;
             $this->server->settings->is_metrics_enabled = $this->isMetricsEnabled;
             $this->server->settings->sentinel_token = $this->sentinelToken;
             $this->server->settings->sentinel_metrics_refresh_rate_seconds = $this->sentinelMetricsRefreshRateSeconds;
@@ -291,6 +296,15 @@ class Show extends Component
             $changedFields = auditChangedFields($this->server->settings);
             $this->server->settings->save();
             $this->auditSettingsUpdate($changedFields);
+
+            if ($this->isMasterDomainRouterEnabled !== $wasMasterDomainRouterEnabled) {
+                $freshServer = $this->server->fresh('settings');
+                if ($this->isMasterDomainRouterEnabled) {
+                    ServerSetting::enableMasterDomainRouter($freshServer);
+                } else {
+                    ServerSetting::disableMasterDomainRouter($freshServer);
+                }
+            }
         } else {
             $this->name = $this->server->name;
             $this->description = $this->server->description;
@@ -305,6 +319,7 @@ class Show extends Component
             $this->isSwarmManager = $this->server->settings->is_swarm_manager;
             $this->isSwarmWorker = $this->server->settings->is_swarm_worker;
             $this->serverRole = $this->server->settings->effectiveServerRole()->value;
+            $this->isMasterDomainRouterEnabled = $this->server->settings->is_master_domain_router_enabled;
             $this->isMetricsEnabled = $this->server->settings->is_metrics_enabled;
             $this->sentinelToken = auth()->user()->can('update', $this->server)
                 ? $this->server->settings->ensureValidSentinelToken()

@@ -2182,6 +2182,7 @@ function applicationParser(Application $resource, int $pull_request_id = 0, ?int
                             redirect_direction: $redirectDirection,
                             domainPortOverrides: $domainPortOverrides,
                             certificate_resolver: $server->traefikCertificateResolver(data_get($resource, 'settings.traefik_certificate_resolver')),
+                            server: $server,
                         ));
                         break;
                     case ProxyTypes::CADDY->value:
@@ -2222,6 +2223,7 @@ function applicationParser(Application $resource, int $pull_request_id = 0, ?int
                     redirect_direction: $redirectDirection,
                     domainPortOverrides: $domainPortOverrides,
                     certificate_resolver: $server->traefikCertificateResolver(data_get($resource, 'settings.traefik_certificate_resolver')),
+                    server: $server,
                 ));
                 $serviceLabels = $serviceLabels->merge(fqdnLabelsForCaddy(
                     network: $labelNetwork,
@@ -3486,6 +3488,7 @@ function serviceParser(Service $resource): Collection
                             noindex_domains: $noindexDomains,
                             redirect_direction: $redirectDirection,
                             certificate_resolver: $server->traefikCertificateResolver(data_get($originalResource, 'traefik_certificate_resolver')),
+                            server: $server,
                         ));
                         break;
                     case ProxyTypes::CADDY->value:
@@ -3526,6 +3529,7 @@ function serviceParser(Service $resource): Collection
                     noindex_domains: $noindexDomains,
                     redirect_direction: $redirectDirection,
                     certificate_resolver: $server->traefikCertificateResolver(data_get($originalResource, 'traefik_certificate_resolver')),
+                    server: $server,
                 ));
                 $serviceLabels = $serviceLabels->merge(fqdnLabelsForCaddy(
                     network: $network,

@@ -944,7 +944,23 @@ function traefikHostRulesWithoutIpv6Brackets(Collection $labels): Collection
     ) : $label);
 }
 
-function fqdnLabelsForTraefik(string $uuid, Collection $domains, bool $is_force_https_enabled = false, $onlyPort = null, ?Collection $serviceLabels = null, ?bool $is_gzip_enabled = true, ?bool $is_stripprefix_enabled = true, ?string $service_name = null, bool $generate_unique_uuid = false, ?string $image = null, string $redirect_direction = 'both', bool $is_http_basic_auth_enabled = false, ?string $http_basic_auth_username = null, ?string $http_basic_auth_password = null, ?Collection $noindex_domains = null, bool $escape_redirect_replacement_for_compose = true, array $domainPortOverrides = [], ?string $certificate_resolver = 'letsencrypt', ?int $http_basic_auth_bcrypt_cost = null, bool $is_permanent_redirect_enabled = false)
+function shouldUsePublicCertResolver(?Server $server): bool
+{
+    if (! $server instanceof Server || $server->team_id === null) return true;
+    $masterId = Server::query()->where('team_id', $server->team_id)->whereRelation('settings', 'is_master_domain_router_enabled', true)->value('id');
+    return $masterId === null || (int) $masterId === (int) $server->id;
+}
+
+function traefikPublicCertResolver(): string
+{
+    // Keep the value shared with v4's generated proxy command until v4 exposes it as a setting.
+    return 'letsencrypt';
+}
+
+function traefikHttpEntrypoint(): string { return 'http'; }
+function traefikHttpsEntrypoint(): string { return 'https'; }
+
+function fqdnLabelsForTraefik(string $uuid, Collection $domains, bool $is_force_https_enabled = false, $onlyPort = null, ?Collection $serviceLabels = null, ?bool $is_gzip_enabled = true, ?bool $is_stripprefix_enabled = true, ?string $service_name = null, bool $generate_unique_uuid = false, ?string $image = null, string $redirect_direction = 'both', bool $is_http_basic_auth_enabled = false, ?string $http_basic_auth_username = null, ?string $http_basic_auth_password = null, ?Collection $noindex_domains = null, bool $escape_redirect_replacement_for_compose = true, array $domainPortOverrides = [], ?string $certificate_resolver = 'letsencrypt', ?int $http_basic_auth_bcrypt_cost = null, bool $is_permanent_redirect_enabled = false, ?Server $server = null)
 {
     $labels = collect([]);
     $labels->push('traefik.enable=true');
@@ -1122,7 +1138,7 @@ function fqdnLabelsForTraefik(string $uuid, Collection $domains, bool $is_force_
                     }
                 }
                 $labels->push("traefik.http.routers.{$https_label}.tls=true");
-                if (filled($certificate_resolver)) {
+                if (filled($certificate_resolver) && filter_var($host, FILTER_VALIDATE_IP) === false && shouldUsePublicCertResolver($server)) {
                     $labels->push("traefik.http.routers.{$https_label}.tls.certresolver={$certificate_resolver}");
                 }
 
@@ -1265,6 +1281,7 @@ function generateLabelsApplication(Application $application, ?ApplicationPreview
                             noindex_domains: $noindexDomains,
                             domainPortOverrides: $application->domain_port_overrides ?? [],
                             certificate_resolver: $application->destination->server->traefikCertificateResolver($application->settings?->traefik_certificate_resolver),
+                            server: $application->destination->server,
                         ));
                         break;
                     case ProxyTypes::CADDY->value:
@@ -1309,6 +1326,7 @@ function generateLabelsApplication(Application $application, ?ApplicationPreview
                     escape_redirect_replacement_for_compose: false,
                     domainPortOverrides: $application->domain_port_overrides ?? [],
                     certificate_resolver: $application->destination->server->traefikCertificateResolver($application->settings?->traefik_certificate_resolver),
+                    server: $application->destination->server,
                 ));
                 $labels = $labels->merge(fqdnLabelsForCaddy(
                     network: $application->destination->network,
@@ -1361,6 +1379,7 @@ function generateLabelsApplication(Application $application, ?ApplicationPreview
                         escape_redirect_replacement_for_compose: false,
                         domainPortOverrides: $preview->domain_port_overrides ?? [],
                         certificate_resolver: $application->destination->server->traefikCertificateResolver($application->settings?->traefik_certificate_resolver),
+                        server: $application->destination->server,
                     ));
                     break;
                 case ProxyTypes::CADDY->value:
@@ -1403,6 +1422,7 @@ function generateLabelsApplication(Application $application, ?ApplicationPreview
                 escape_redirect_replacement_for_compose: false,
                 domainPortOverrides: $preview->domain_port_overrides ?? [],
                 certificate_resolver: $application->destination->server->traefikCertificateResolver($application->settings?->traefik_certificate_resolver),
+                server: $application->destination->server,
             ));
             $labels = $labels->merge(fqdnLabelsForCaddy(
                 network: $application->destination->network,

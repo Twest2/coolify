@@ -344,7 +344,14 @@
 
                         @if ($server->server_metadata)
                             @include('livewire.server.partials.server-details', ['server' => $server])
+
                         @endif
+                        <div class="mt-4 border-t border-neutral-200 pt-4 dark:border-white/[0.08]">
+                            <x-forms.checkbox canGate="update" :canResource="$server"
+                                id="isMasterDomainRouterEnabled" label="Use as the master domain router"
+                                helper="Receives public domains for resources hosted on other servers in this team. Requires Traefik and cannot be enabled on a build server."
+                                :disabled="$isValidating || $serverRole === 'build' || $server->proxyType() !== 'TRAEFIK'" />
+                        </div>
                     </x-application.settings-section>
 
                     @if ($server->validation_logs)

@@ -3543,6 +3543,7 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                                         redirect_direction: $redirectDirection,
                                         domainPortOverrides: $domainPortOverrides,
                                         certificate_resolver: $resource->server->traefikCertificateResolver(data_get($savedService, 'traefik_certificate_resolver')),
+                                        server: $resource->server,
                                     ));
                                     break;
                                 case ProxyTypes::CADDY->value:
@@ -3583,6 +3584,7 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                                 redirect_direction: $redirectDirection,
                                 domainPortOverrides: $domainPortOverrides,
                                 certificate_resolver: $resource->server->traefikCertificateResolver(data_get($savedService, 'traefik_certificate_resolver')),
+                                server: $resource->server,
                             ));
                             $serviceLabels = $serviceLabels->merge(fqdnLabelsForCaddy(
                                 network: $resource->destination->network,
@@ -4349,6 +4351,7 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                                             redirect_direction: $redirectDirection,
                                             domainPortOverrides: $domainPortOverrides,
                                             certificate_resolver: $server->traefikCertificateResolver(data_get($resource, 'settings.traefik_certificate_resolver')),
+                                            server: $server,
                                         )
                                     );
                                     break;
@@ -4392,6 +4395,7 @@ function parseDockerComposeFile(Service|Application $resource, bool $isNew = fal
                                     redirect_direction: $redirectDirection,
                                     domainPortOverrides: $domainPortOverrides,
                                     certificate_resolver: $server->traefikCertificateResolver(data_get($resource, 'settings.traefik_certificate_resolver')),
+                                    server: $server,
                                 )
                             );
                             $serviceLabels = $serviceLabels->merge(

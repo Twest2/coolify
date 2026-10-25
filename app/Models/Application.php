@@ -7,6 +7,7 @@ use App\Enums\BuildPackTypes;
 use App\Enums\HttpBasicAuthHashAlgorithm;
 use App\Enums\ProxyTypes;
 use App\Exceptions\DeploymentException;
+use App\Jobs\SyncRemoteServerRouteJob;
 use App\Services\ConfigurationGenerator;
 use App\Services\DeploymentConfiguration\ApplicationConfigurationSnapshot;
 use App\Services\DeploymentConfiguration\ConfigurationDiff;
@@ -412,6 +413,11 @@ class Application extends BaseModel
                     'resourceable_type' => Application::class,
                     'resourceable_id' => $application->id,
                 ]);
+            }
+        });
+        static::updated(function (self $application): void {
+            if ($application->wasChanged(['fqdn', 'docker_compose_domains', 'docker_compose_raw', 'ports_mappings', 'redirect', 'destination_id', 'destination_type'])) {
+                SyncRemoteServerRouteJob::dispatch($application)->afterCommit();
             }
         });
         static::forceDeleting(function ($application) {
