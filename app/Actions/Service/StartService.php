@@ -5,6 +5,7 @@ namespace App\Actions\Service;
 use App\Actions\Shared\EnsureContentFilesOnServer;
 use App\Events\ServiceStartFinished;
 use App\Jobs\ServerFilesFromServerJob;
+use App\Jobs\SyncRemoteServerRouteJob;
 use App\Models\LocalFileVolume;
 use App\Models\Service;
 use App\Models\ServiceApplication;
@@ -85,7 +86,10 @@ class StartService
             }
         }
 
-        return remote_process($commands, $service->server, type_uuid: $service->uuid, callEventOnFinish: 'ServiceStartFinished', callEventData: ServiceStartFinished::dataFor($service), queue: deployment_queue());
+        $activity = remote_process($commands, $service->server, type_uuid: $service->uuid, callEventOnFinish: 'ServiceStartFinished', callEventData: ServiceStartFinished::dataFor($service), queue: deployment_queue());
+        SyncRemoteServerRouteJob::dispatch($service)->afterCommit();
+
+        return $activity;
     }
 
     /**

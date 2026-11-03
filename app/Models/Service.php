@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Jobs\SyncRemoteServerRouteJob;
 use App\Services\ContainerStatusAggregator;
 use App\Services\DockerImageParser;
 use App\Support\DomainPortOverrides;
@@ -108,6 +109,11 @@ class Service extends BaseModel
         static::saving(function ($service) {
             if ($service->isDirty('docker_compose_raw')) {
                 EnvironmentVariable::authorizeAddedSharedVariableReferencesIn($service, $service->getOriginal('docker_compose_raw'), $service->docker_compose_raw, 'docker_compose_raw');
+            }
+        });
+        static::updated(function (self $service): void {
+            if ($service->wasChanged(['docker_compose', 'docker_compose_raw', 'server_id', 'destination_id', 'destination_type'])) {
+                SyncRemoteServerRouteJob::dispatch($service)->afterCommit();
             }
         });
     }
