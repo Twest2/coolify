@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Jobs\SyncRemoteServerRouteJob;
 use App\Services\ContainerStatusAggregator;
 use App\Services\DockerImageParser;
 use App\Support\DomainPortOverrides;
@@ -103,6 +104,11 @@ class Service extends BaseModel
         static::created(function ($service) {
             $service->compose_parsing_version = self::$parserVersion;
             $service->save();
+        });
+        static::updated(function (self $service): void {
+            if ($service->wasChanged(['docker_compose', 'docker_compose_raw', 'server_id', 'destination_id', 'destination_type'])) {
+                SyncRemoteServerRouteJob::dispatch($service)->afterCommit();
+            }
         });
     }
 
