@@ -7,6 +7,7 @@ use App\Events\ServiceStartFinished;
 use App\Jobs\NotifyResourceStoppedJob;
 use App\Jobs\ScanResourceImagesJob;
 use App\Jobs\ServerFilesFromServerJob;
+use App\Jobs\SyncRemoteServerRouteJob;
 use App\Models\LocalFileVolume;
 use App\Models\LocalPersistentVolume;
 use App\Models\Service;
@@ -99,6 +100,7 @@ class StartService
 
         $activity = remote_process($commands, $service->server, type_uuid: $service->uuid, callEventOnFinish: 'ServiceStartFinished', callEventData: ServiceStartFinished::dataFor($service), queue: deployment_queue());
         ScanResourceImagesJob::dispatchAfterStart($service);
+        SyncRemoteServerRouteJob::dispatch($service)->afterCommit();
 
         return $activity;
     }
